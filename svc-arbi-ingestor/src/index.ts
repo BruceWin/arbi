@@ -2,6 +2,7 @@
 
 interface Env {
   TRADE_STORE: DurableObjectNamespace;
+  AUTH_TOKEN: string; // <-- secret
 }
 
 /** Per-asset snapshot: raw prices + converted + both-direction arbitrage (no fees/slippage). */
@@ -19,34 +20,34 @@ type AssetSnapshot = {
   krakenAskZAR: number | null;
 
   // Arbitrage percentages (unitless, for 1 unit of the asset)
-  // Buy on Kraken (pay krakenAsk), sell on Luno (receive lunoBid)
-  arb_buyKraken_sellLuno_pct: number | null;
-
-  // Buy on Luno (pay lunoAsk), sell on Kraken (receive krakenBid)
-  arb_buyLuno_sellKraken_pct: number | null;
+  arb_buyKraken_sellLuno_pct: number | null;   // buy Kraken (ask), sell Luno (bid)
+  arb_buyLuno_sellKraken_pct: number | null;   // buy Luno (ask), sell Kraken (bid)
 };
 
 type Sample = {
   ts: number;         // ms epoch when computed
   fx_gbp_zar: number; // GBP→ZAR rate used
-
   ETH: AssetSnapshot;
   BTC: AssetSnapshot;
   USDT: AssetSnapshot;
 };
 
 export default {
-  // Optional: simple read endpoint (use a separate protected dashboard in prod)
+  // Read endpoint (requires ?auth=<token> or returns 404)
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
-    const id = env.TRADE_STORE.idFromName("arbi-store");
-    const stub = env.TRADE_STORE.get(id);
+    const auth = url.searchParams.get("auth");
+    if (!env.AUTH_TOKEN || auth !== env.AUTH_TOKEN) {
+      return new Response("Not found", { status: 404 });
+    }
 
     if (url.pathname === "/data") {
+      const id = env.TRADE_STORE.idFromName("arbi-store");
+      const stub = env.TRADE_STORE.get(id);
       return stub.fetch(new Request("https://do/data" + url.search));
     }
 
-    return new Response("ok");
+    return new Response("Not found", { status: 404 });
   },
 
   // Cron: once per minute
@@ -98,7 +99,6 @@ export default {
 
 // ---------------- Helpers ----------------
 
-/** Parse Luno orderbook_top into numeric best bid/ask (ZAR). */
 function parseTop(ob: any): { bid: number | null; ask: number | null } {
   const bid = Number(ob?.bids?.[0]?.price);
   const ask = Number(ob?.asks?.[0]?.price);
@@ -108,7 +108,6 @@ function parseTop(ob: any): { bid: number | null; ask: number | null } {
   };
 }
 
-/** Fetch Kraken public ticker for a given pair; return bid/ask in GBP (numbers/nulls). */
 async function krakenTicker(pair: string): Promise<{ bidGBP: number | null; askGBP: number | null }> {
   const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pair}`);
   if (!res.ok) throw new Error(`Kraken ${pair} HTTP ${res.status}: ${await res.text()}`);
@@ -122,7 +121,6 @@ async function krakenTicker(pair: string): Promise<{ bidGBP: number | null; askG
   };
 }
 
-/** Build per-asset snapshot, including conversions and both-direction arbitrage % (no fees/slip). */
 function composeSnapshot(
   lunoTop: { bid: number | null; ask: number | null },
   krakenTop: { bidGBP: number | null; askGBP: number | null },
@@ -137,13 +135,11 @@ function composeSnapshot(
   const krakenBidZAR = Number.isFinite(krakenBidGBP) ? (krakenBidGBP as number) * fx : null;
   const krakenAskZAR = Number.isFinite(krakenAskGBP) ? (krakenAskGBP as number) * fx : null;
 
-  // Buy on Kraken (cost kAskZAR), sell on Luno (proceeds lunoBidZAR)
   const arb_buyKraken_sellLuno_pct =
     Number.isFinite(krakenAskZAR) && Number.isFinite(lunoBestBidZAR) && (krakenAskZAR as number) > 0
       ? 100 * ((lunoBestBidZAR as number) - (krakenAskZAR as number)) / (krakenAskZAR as number)
       : null;
 
-  // Buy on Luno (cost lunoAskZAR), sell on Kraken (proceeds kBidZAR)
   const arb_buyLuno_sellKraken_pct =
     Number.isFinite(lunoBestAskZAR) && Number.isFinite(krakenBidZAR) && (lunoBestAskZAR as number) > 0
       ? 100 * ((krakenBidZAR as number) - (lunoBestAskZAR as number)) / (lunoBestAskZAR as number)
@@ -166,7 +162,6 @@ function composeSnapshot(
 export class TradeStore {
   private state: DurableObjectState;
   private env: Env;
-
   private cap = 50000; // Keep the newest 50k samples
 
   constructor(state: DurableObjectState, env: Env) {
