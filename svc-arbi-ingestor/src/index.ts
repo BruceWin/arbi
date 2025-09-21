@@ -6,7 +6,7 @@
  * https://developers.cloudflare.com/workers/platform/triggers/cron-triggers/
  *
  * - Run `npm run dev` in your terminal to start a development server
- * - Run `curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"` to see your Worker in action
+ * - Run `curl "http://localhost:8787/__scheduled?cron=*1+*+*+*+*"` to see your Worker in action
  * - Run `npm run deploy` to publish your Worker
  *
  * Bind resources to your Worker in `wrangler.jsonc`. After adding bindings, a type definition for the
@@ -19,7 +19,7 @@ export default {
 	async fetch(req) {
 		const url = new URL(req.url);
 		url.pathname = '/__scheduled';
-		url.searchParams.append('cron', '* * * * *');
+		url.searchParams.append('cron', '*/1 * * * *');
 		return new Response(`To test the scheduled handler, ensure you have used the "--test-scheduled" then try running "curl ${url.href}".`);
 	},
 
