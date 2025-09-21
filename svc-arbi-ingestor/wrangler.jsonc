@@ -42,7 +42,12 @@
 	// "services": [{ "binding": "MY_SERVICE", "service": "my-service" }]
 	"triggers": {
 		"crons": [
-			"*/1 * * * *"
+			"* * * * *"
 		]
+	},
+	"env": {
+		"dev": {
+			"vars": {}
+		}
 	}
 }
