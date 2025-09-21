@@ -45,9 +45,20 @@
 			"* * * * *"
 		]
 	},
-	"env": {
-		"dev": {
-			"vars": {}
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "TRADE_STORE",
+				"class_name": "TradeStore"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"TradeStore"
+			]
 		}
-	}
+	]
 }

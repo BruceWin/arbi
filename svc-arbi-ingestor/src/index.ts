@@ -1,136 +1,227 @@
 // src/index.ts
 
 interface Env {
-	LUNO_KEY_ID: string;
-	LUNO_KEY_SECRET: string;
-}
-interface Env {
-	TRADE_STORE: DurableObjectNamespace;
+  TRADE_STORE: DurableObjectNamespace;
 }
 
-type CandleObject = {
-	timestamp: number;
-	open: string;
-	high: string;
-	low: string;
-	close: string;
-	volume: string;
+/** Per-asset snapshot: raw prices + converted + both-direction arbitrage (no fees/slippage). */
+type AssetSnapshot = {
+  // Luno (ZAR)
+  lunoBestBidZAR: number | null;
+  lunoBestAskZAR: number | null;
+
+  // Kraken (GBP)
+  krakenBidGBP: number | null;
+  krakenAskGBP: number | null;
+
+  // Kraken converted to ZAR
+  krakenBidZAR: number | null;
+  krakenAskZAR: number | null;
+
+  // Arbitrage percentages (unitless, for 1 unit of the asset)
+  // Buy on Kraken (pay krakenAsk), sell on Luno (receive lunoBid)
+  arb_buyKraken_sellLuno_pct: number | null;
+
+  // Buy on Luno (pay lunoAsk), sell on Kraken (receive krakenBid)
+  arb_buyLuno_sellKraken_pct: number | null;
 };
 
-type LunoCandlesResponse = {
-	pair: "ETHZAR";
-	duration: 300;
-	candles: CandleObject[];
+type Sample = {
+  ts: number;         // ms epoch when computed
+  fx_gbp_zar: number; // GBP→ZAR rate used
+
+  ETH: AssetSnapshot;
+  BTC: AssetSnapshot;
+  USDT: AssetSnapshot;
 };
 
 export default {
-	async fetch(req: Request) {
-		const url = new URL(req.url);
-		url.pathname = "/__scheduled";
-		url.searchParams.set("cron", "* * * * *");
-		return new Response(
-			`To test the scheduled handler, run:\n  curl "${url.href}"\n`
-		);
-	},
+  // Optional: simple read endpoint (use a separate protected dashboard in prod)
+  async fetch(req: Request, env: Env) {
+    const url = new URL(req.url);
+    const id = env.TRADE_STORE.idFromName("arbi-store");
+    const stub = env.TRADE_STORE.get(id);
 
-	async scheduled(event: ScheduledController, env: Env) {
-		try {
-			// 1) FX GBP→ZAR
-			const fx = await fetch("https://api.frankfurter.app/latest?from=GBP&to=ZAR")
-				.then(r => r.json())
-				.then(d => Number(d.rates.ZAR));
+    if (url.pathname === "/data") {
+      return stub.fetch(new Request("https://do/data" + url.search));
+    }
 
-			// 2) Luno top of book (ZAR)
-			const obTop = await fetch("https://api.luno.com/api/1/orderbook_top?pair=ETHZAR")
-				.then(r => r.json());
-			const lunoBestAskZAR = Number(obTop.asks?.[0]?.price); // taker buy on Luno
+    return new Response("ok");
+  },
 
-			// 3) Kraken ticker (GBP)
-			const k = await fetch("https://api.kraken.com/0/public/Ticker?pair=ETHGBP")
-				.then(r => r.json());
-			const key = Object.keys(k.result ?? {})[0];
-			const krakenAskGBP = Number(k.result[key].a[0]); // best ask (buy here)
-			const krakenBidGBP = Number(k.result[key].b[0]); // best bid (sell here)
+  // Cron: once per minute
+  async scheduled(_event: ScheduledController, env: Env) {
+    // 1) FX GBP→ZAR
+    const fx = await fetch("https://api.frankfurter.app/latest?from=GBP&to=ZAR")
+      .then(r => r.json()).then(d => Number(d.rates.ZAR));
 
-			// Convert Kraken quotes to ZAR
-			const krakenAskZAR = krakenAskGBP * fx;
-			const krakenBidZAR = krakenBidGBP * fx;
+    // 2) Luno top-of-book (ZAR) for ETH, BTC (XBT), USDT
+    const [obETH, obBTC, obUSDT] = await Promise.all([
+      fetch("https://api.luno.com/api/1/orderbook_top?pair=ETHZAR").then(r => r.json()),
+      fetch("https://api.luno.com/api/1/orderbook_top?pair=XBTZAR").then(r => r.json()),
+      fetch("https://api.luno.com/api/1/orderbook_top?pair=USDTZAR").then(r => r.json()),
+    ]);
+    const lETH = parseTop(obETH);
+    const lBTC = parseTop(obBTC);
+    const lUSDT = parseTop(obUSDT);
 
-			// Edges (no fees, no slippage)
-			const buyBenchmarkEdgePct = 100 * (krakenAskZAR - lunoBestAskZAR) / krakenAskZAR; // ask vs ask
-			const arbEdgePct = 100 * (krakenBidZAR - lunoBestAskZAR) / krakenBidZAR; // bid vs ask
+    // 3) Kraken tickers (GBP) for ETH, BTC (XBT), USDT
+    const [kETH, kBTC, kUSDT] = await Promise.all([
+      krakenTicker("ETHGBP"),
+      krakenTicker("XBTGBP"),
+      krakenTicker("USDTGBP"),
+    ]);
 
-			console.log({
-				fx,
-				lunoBestAskZAR,
-				krakenAskGBP, krakenBidGBP,
-				krakenAskZAR, krakenBidZAR,
-				buyBenchmarkEdgePct,
-				arbEdgePct
-			});
+    // 4) Build snapshots (prices + arb both ways)
+    const ETH = composeSnapshot(lETH, kETH, fx);
+    const BTC = composeSnapshot(lBTC, kBTC, fx);
+    const USDT = composeSnapshot(lUSDT, kUSDT, fx);
 
+    // 5) Store one sample under its timestamp key
+    const sample: Sample = {
+      ts: Date.now(),
+      fx_gbp_zar: fx,
+      ETH, BTC, USDT
+    };
 
+    console.log("sample", sample);
 
-		} catch (err: any) {
-			console.error("scheduled() error:", err?.message || err);
-		}
-	},
+    const id = env.TRADE_STORE.idFromName("arbi-store");
+    const stub = env.TRADE_STORE.get(id);
+    await stub.fetch("https://do/append", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(sample)
+    });
+  }
 } satisfies ExportedHandler<Env>;
 
-// ---------- helpers (strictly for the object-shaped Luno response) ----------
+// ---------------- Helpers ----------------
 
-async function getGbpZar(): Promise<number> {
-	const res = await fetch(
-		"https://api.frankfurter.app/latest?from=GBP&to=ZAR",
-		{ headers: { Accept: "application/json" } }
-	);
-	if (!res.ok) throw new Error(`FX HTTP ${res.status}: ${await res.text()}`);
-	const data = (await res.json()) as { rates?: { ZAR?: number } };
-	const rate = data?.rates?.ZAR;
-	if (!rate || !Number.isFinite(rate)) throw new Error("Missing GBP→ZAR rate");
-	return rate;
+/** Parse Luno orderbook_top into numeric best bid/ask (ZAR). */
+function parseTop(ob: any): { bid: number | null; ask: number | null } {
+  const bid = Number(ob?.bids?.[0]?.price);
+  const ask = Number(ob?.asks?.[0]?.price);
+  return {
+    bid: Number.isFinite(bid) ? bid : null,
+    ask: Number.isFinite(ask) ? ask : null
+  };
 }
 
-async function getLunoEthZarLatestClose(
-	env: Env
-): Promise<{ ts: number; close: number } | null> {
-	if (!env.LUNO_KEY_ID || !env.LUNO_KEY_SECRET) {
-		throw new Error("Missing LUNO_KEY_ID / LUNO_KEY_SECRET secrets");
-	}
-	// choose an allowed duration (seconds). 60 = 1m, 300 = 5m, etc.
-	const duration = 60;
-	const Dms = duration * 1000;
+/** Fetch Kraken public ticker for a given pair; return bid/ask in GBP (numbers/nulls). */
+async function krakenTicker(pair: string): Promise<{ bidGBP: number | null; askGBP: number | null }> {
+  const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pair}`);
+  if (!res.ok) throw new Error(`Kraken ${pair} HTTP ${res.status}: ${await res.text()}`);
+  const data = await res.json() as any;
+  const key = Object.keys(data.result ?? {})[0];
+  const bid = Number(data.result?.[key]?.b?.[0]);
+  const ask = Number(data.result?.[key]?.a?.[0]);
+  return {
+    bidGBP: Number.isFinite(bid) ? bid : null,
+    askGBP: Number.isFinite(ask) ? ask : null
+  };
+}
 
-	// snap to candle boundary so we don't hit an "in-progress" bucket
-	const now = Date.now();
-	const currentBucketStart = Math.floor(now / Dms) * Dms;
-	const since = currentBucketStart - Dms; // start of the *previous* full candle
-	console.log(since);
+/** Build per-asset snapshot, including conversions and both-direction arbitrage % (no fees/slip). */
+function composeSnapshot(
+  lunoTop: { bid: number | null; ask: number | null },
+  krakenTop: { bidGBP: number | null; askGBP: number | null },
+  fx: number
+): AssetSnapshot {
+  const lunoBestBidZAR = lunoTop.bid ?? null;
+  const lunoBestAskZAR = lunoTop.ask ?? null;
 
-	const auth = "Basic " + btoa(`${env.LUNO_KEY_ID}:${env.LUNO_KEY_SECRET}`);
-	const url = `https://api.luno.com/api/exchange/1/candles?pair=ETHZAR&since=${since}&duration=${duration}`;
+  const krakenBidGBP = krakenTop.bidGBP ?? null;
+  const krakenAskGBP = krakenTop.askGBP ?? null;
 
-	const res = await fetch(url, {
-		headers: {
-			Authorization: auth,
-			Accept: "application/json",
-			"User-Agent": "svc-arbi-oracle/1.0 (Cloudflare Worker)",
-		},
-	});
-	if (!res.ok) throw new Error(`Luno HTTP ${res.status}: ${await res.text()}`);
+  const krakenBidZAR = Number.isFinite(krakenBidGBP) ? (krakenBidGBP as number) * fx : null;
+  const krakenAskZAR = Number.isFinite(krakenAskGBP) ? (krakenAskGBP as number) * fx : null;
 
-	const body = (await res.json()) as LunoCandlesResponse;
-	console.log(body);
+  // Buy on Kraken (cost kAskZAR), sell on Luno (proceeds lunoBidZAR)
+  const arb_buyKraken_sellLuno_pct =
+    Number.isFinite(krakenAskZAR) && Number.isFinite(lunoBestBidZAR) && (krakenAskZAR as number) > 0
+      ? 100 * ((lunoBestBidZAR as number) - (krakenAskZAR as number)) / (krakenAskZAR as number)
+      : null;
 
-	// Expect EXACT shape:
-	// {"pair":"ETHZAR","duration":300,"candles":[{timestamp:number, open:string, high:string, low:string, close:string, volume:string}, ...]}
-	const candles = body.candles ?? [];
-	if (candles.length === 0) return null;
+  // Buy on Luno (cost lunoAskZAR), sell on Kraken (proceeds kBidZAR)
+  const arb_buyLuno_sellKraken_pct =
+    Number.isFinite(lunoBestAskZAR) && Number.isFinite(krakenBidZAR) && (lunoBestAskZAR as number) > 0
+      ? 100 * ((krakenBidZAR as number) - (lunoBestAskZAR as number)) / (lunoBestAskZAR as number)
+      : null;
 
-	const latest = candles.reduce((a, b) => (a.timestamp > b.timestamp ? a : b));
-	const ts = Number(latest.timestamp);
-	const close = Number(latest.close);
+  return {
+    lunoBestBidZAR,
+    lunoBestAskZAR,
+    krakenBidGBP,
+    krakenAskGBP,
+    krakenBidZAR,
+    krakenAskZAR,
+    arb_buyKraken_sellLuno_pct,
+    arb_buyLuno_sellKraken_pct
+  };
+}
 
-	if (!Number.isFinite(ts) || !Number.isFinite(close)) return null;
-	return { ts, close };
+// ---------------- Durable Object (per-sample key = timestamp) ----------------
+
+export class TradeStore {
+  private state: DurableObjectState;
+  private env: Env;
+
+  private cap = 50000; // Keep the newest 50k samples
+
+  constructor(state: DurableObjectState, env: Env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+
+    if (url.pathname.endsWith("/append") && req.method === "POST") {
+      const sample = (await req.json()) as Sample;
+
+      const key = String(sample.ts); // key is the timestamp
+      await this.state.storage.put(key, sample);
+
+      // Enforce cap: list newest-first and delete older overflow
+      const keep = this.cap;
+      const list = await this.state.storage.list<Sample>({ reverse: true, limit: keep + 100 });
+      const entries = [...list];
+      if (entries.length > keep) {
+        const extras = entries.slice(keep).map(([k]) => k);
+        for (const k of extras) await this.state.storage.delete(k);
+      }
+
+      return new Response("ok");
+    }
+
+    if (url.pathname.endsWith("/data")) {
+      const limitParam  = url.searchParams.get("limit");
+      const cursorParam = url.searchParams.get("cursor"); // optional: startAfter key
+      const limit = (() => {
+        const n = Math.floor(Number(limitParam));
+        if (!Number.isFinite(n)) return 200;
+        return Math.max(1, Math.min(2000, n));
+      })();
+
+      const list = await this.state.storage.list<Sample>({
+        reverse: true,
+        limit,
+        startAfter: cursorParam || undefined
+      });
+
+      const entries = [...list];
+      const samples = entries.map(([, v]) => v);
+      const nextCursor = entries.length ? entries[entries.length - 1][0] : null;
+
+      return new Response(JSON.stringify({ count: samples.length, nextCursor, samples }), {
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store"
+        }
+      });
+    }
+
+    return new Response("ready");
+  }
 }
