@@ -4,6 +4,9 @@ interface Env {
 	LUNO_KEY_ID: string;
 	LUNO_KEY_SECRET: string;
 }
+interface Env {
+	TRADE_STORE: DurableObjectNamespace;
+}
 
 type CandleObject = {
 	timestamp: number;
@@ -32,29 +35,42 @@ export default {
 
 	async scheduled(event: ScheduledController, env: Env) {
 		try {
-			const fx = await getGbpZar();
-			const last = await getLunoEthZarLatestClose(env);
+			// 1) FX GBP→ZAR
+			const fx = await fetch("https://api.frankfurter.app/latest?from=GBP&to=ZAR")
+				.then(r => r.json())
+				.then(d => Number(d.rates.ZAR));
 
-			const priceZAR = last?.close ?? undefined;
-			const priceGBP = priceZAR && fx ? priceZAR / fx : undefined;
+			// 2) Luno top of book (ZAR)
+			const obTop = await fetch("https://api.luno.com/api/1/orderbook_top?pair=ETHZAR")
+				.then(r => r.json());
+			const lunoBestAskZAR = Number(obTop.asks?.[0]?.price); // taker buy on Luno
 
-			console.log(
-				JSON.stringify(
-					{
-						cron: event.cron,
-						ts: new Date().toISOString(),
-						fx: { gbp_zar: fx },
-						luno: {
-							pair: "ETHZAR",
-							last_candle_time: last ? new Date(last.ts).toISOString() : null,
-							close_zar: priceZAR ?? null,
-							derived_close_gbp: priceGBP ?? null,
-						},
-					},
-					null,
-					2
-				)
-			);
+			// 3) Kraken ticker (GBP)
+			const k = await fetch("https://api.kraken.com/0/public/Ticker?pair=ETHGBP")
+				.then(r => r.json());
+			const key = Object.keys(k.result ?? {})[0];
+			const krakenAskGBP = Number(k.result[key].a[0]); // best ask (buy here)
+			const krakenBidGBP = Number(k.result[key].b[0]); // best bid (sell here)
+
+			// Convert Kraken quotes to ZAR
+			const krakenAskZAR = krakenAskGBP * fx;
+			const krakenBidZAR = krakenBidGBP * fx;
+
+			// Edges (no fees, no slippage)
+			const buyBenchmarkEdgePct = 100 * (krakenAskZAR - lunoBestAskZAR) / krakenAskZAR; // ask vs ask
+			const arbEdgePct = 100 * (krakenBidZAR - lunoBestAskZAR) / krakenBidZAR; // bid vs ask
+
+			console.log({
+				fx,
+				lunoBestAskZAR,
+				krakenAskGBP, krakenBidGBP,
+				krakenAskZAR, krakenBidZAR,
+				buyBenchmarkEdgePct,
+				arbEdgePct
+			});
+
+
+
 		} catch (err: any) {
 			console.error("scheduled() error:", err?.message || err);
 		}
