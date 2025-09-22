@@ -1,94 +1,73 @@
 {
-  pair: 'ETHZAR',
-  duration: 300,
-  candles: [
-        {
-      timestamp: 1758471300000,
-      open: '78280.00',
-      close: '78280.00',
-      high: '78280.00',
-      low: '78280.00',
-      volume: '0.00'
-        },
-        {
-      timestamp: 1758471600000,
-      open: '78479.00',
-      close: '78479.00',
-      high: '78479.00',
-      low: '78479.00',
-      volume: '0.0191'
-        },
-        {
-      timestamp: 1758471900000,
-      open: '78479.00',
-      close: '78479.00',
-      high: '78479.00',
-      low: '78479.00',
-      volume: '0.00'
-        },
-        {
-      timestamp: 1758472200000,
-      open: '78479.00',
-      close: '78479.00',
-      high: '78479.00',
-      low: '78479.00',
-      volume: '0.00'
-        },
-        {
-      timestamp: 1758472500000,
-      open: '78479.00',
-      close: '78479.00',
-      high: '78479.00',
-      low: '78479.00',
-      volume: '0.00'
-        },
-        {
-      timestamp: 1758472800000,
-      open: '78479.00',
-      close: '78479.00',
-      high: '78479.00',
-      low: '78479.00',
-      volume: '0.00'
-        },
-        {
-      timestamp: 1758473100000,
-      open: '78479.00',
-      close: '78479.00',
-      high: '78479.00',
-      low: '78479.00',
-      volume: '0.00'
-        },
-        {
-      timestamp: 1758473400000,
-      open: '78479.00',
-      close: '78479.00',
-      high: '78479.00',
-      low: '78479.00',
-      volume: '0.00'
-        },
-        {
-      timestamp: 1758473700000,
-      open: '78200.00',
-      close: '77985.00',
-      high: '78200.00',
-      low: '77985.00',
-      volume: '0.659405'
-        },
-        {
-      timestamp: 1758474000000,
-      open: '78394.00',
-      close: '78394.00',
-      high: '78394.00',
-      low: '78394.00',
-      volume: '0.004188'
-        },
-        {
-      timestamp: 1758474300000,
-      open: '78337.00',
-      close: '78337.00',
-      high: '78337.00',
-      low: '78337.00',
-      volume: '0.002286'
-        }
-    ]
-}
+  "count": 1329,
+  "nextCursor": "1758483682823",
+  "samples": [
+    {
+      "ts": 1758563272365,
+      "fx_gbp_zar": 23.354,
+      "ETH": {
+        "lunoBestBidZAR": 73106,
+        "lunoBestAskZAR": 73107,
+        "krakenBidGBP": 3088.8,
+        "krakenAskGBP": 3088.88,
+        "krakenBidZAR": 72135.8352,
+        "krakenAskZAR": 72137.70352,
+        "arb_buyKraken_sellLuno_pct": 1.34228902883157,
+        "arb_buyLuno_sellKraken_pct": -1.32841560999631
+      },
+      "BTC": {
+        "lunoBestBidZAR": 1969000,
+        "lunoBestAskZAR": 1969226,
+        "krakenBidGBP": 83304,
+        "krakenAskGBP": 83304.5,
+        "krakenBidZAR": 1945481.616,
+        "krakenAskZAR": 1945493.293,
+        "arb_buyKraken_sellLuno_pct": 1.20826461260898,
+        "arb_buyLuno_sellKraken_pct": -1.20577242023008
+      },
+      "USDT": {
+        "lunoBestBidZAR": 17.5013,
+        "lunoBestAskZAR": 17.5199,
+        "krakenBidGBP": 0.7407,
+        "krakenAskGBP": 0.7408,
+        "krakenBidZAR": 17.2983078,
+        "krakenAskZAR": 17.3006432,
+        "arb_buyKraken_sellLuno_pct": 1.15982277468158,
+        "arb_buyLuno_sellKraken_pct": -1.26480288129498
+      }
+    },
+    {
+      "ts": 1758563213300,
+      "fx_gbp_zar": 23.354,
+      "ETH": {
+        "lunoBestBidZAR": 73106,
+        "lunoBestAskZAR": 73200,
+        "krakenBidGBP": 3090.54,
+        "krakenAskGBP": 3090.7,
+        "krakenBidZAR": 72176.47116,
+        "krakenAskZAR": 72180.2078,
+        "arb_buyKraken_sellLuno_pct": 1.28261226756957,
+        "arb_buyLuno_sellKraken_pct": -1.39826344262295
+      },
+      "BTC": {
+        "lunoBestBidZAR": 1969576,
+        "lunoBestAskZAR": 1969577,
+        "krakenBidGBP": 83343.8,
+        "krakenAskGBP": 83356,
+        "krakenBidZAR": 1946411.1052,
+        "krakenAskZAR": 1946696.024,
+        "arb_buyKraken_sellLuno_pct": 1.17532350803219,
+        "arb_buyLuno_sellKraken_pct": -1.17618629787004
+      },
+      "USDT": {
+        "lunoBestBidZAR": 17.5009,
+        "lunoBestAskZAR": 17.5199,
+        "krakenBidGBP": 0.7407,
+        "krakenAskGBP": 0.7408,
+        "krakenBidZAR": 17.2983078,
+        "krakenAskZAR": 17.3006432,
+        "arb_buyKraken_sellLuno_pct": 1.15751072191352,
+        "arb_buyLuno_sellKraken_pct": -1.26480288129498
+      }
+    }
+  }
