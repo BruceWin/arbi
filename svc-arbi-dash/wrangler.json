@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "svc-arbi-dash",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-21",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "TRADE_STORE", "class_name": "TradeStore", "script_name": "svc-arbi-ingestor" },
+      { "name": "TRADE_LEDGER", "class_name": "TradeLedger" }
+    ]
+  },
+  "migrations": [
+    { "tag": "trade-ledger-v1", "new_sqlite_classes": ["TradeLedger"] }
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "app/dist"
+  }
+}
